@@ -541,6 +541,19 @@ those — are registered directly on the aggregate as `<provider>__<tool>`,
 where the client can show the consent prompt. `search` exposes
 `consentRequired` so a script can see this before it tries.
 
+**Machine consumers** do not write JavaScript by hand.
+[`provider-sdk/mcpcode`](https://github.com/railgrid/railgrid/blob/main/provider-sdk/mcpcode/mcpcode.go)
+writes the one-line program for a single named call
+(`() => railgrid.call("<tool>", {args})`), fetches the catalog through
+`search`, and decodes the envelope back into the tool's own result, `_meta`
+and exact structured bytes included; `CallError.ConsentRequired` tells a caller
+to fall back to the direct tool. The CLI (`railgrid mcp call`, `railgrid
+commit`, `railgrid app sync`), App Studio's assistant and the agents provider's
+edges tool family all go through it, and
+`mcpcode/mcpcodetest` stands in for the aggregate in their tests. A hub test
+(`TestCodeModeWireMatchesSDKHelper`) keeps the helper and this endpoint in
+lockstep.
+
 **Not yet covered**: a per-execution memory cap (goja has none; the result and
 log caps bound what leaves the sandbox, not what it allocates), and the agents
 provider's own runner, whose tool families are built in-process rather than

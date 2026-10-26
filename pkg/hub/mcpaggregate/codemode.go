@@ -412,10 +412,14 @@ type callResultPayload struct {
 	Data    any           `json:"data,omitempty"`
 	Raw     string        `json:"raw,omitempty"`
 	Content []mcp.Content `json:"content"`
+	// Meta is the tool result's own _meta (a provider's source references
+	// and presentation hints), carried through untouched so a consumer
+	// calling through execute sees exactly what a direct call returns.
+	Meta mcp.Meta `json:"_meta,omitempty"`
 }
 
 func callPayload(res *mcp.CallToolResult) callResultPayload {
-	p := callResultPayload{OK: !res.IsError, IsError: res.IsError, Content: res.Content, Data: res.StructuredContent}
+	p := callResultPayload{OK: !res.IsError, IsError: res.IsError, Content: res.Content, Data: res.StructuredContent, Meta: res.Meta}
 	if p.Content == nil {
 		p.Content = []mcp.Content{}
 	}

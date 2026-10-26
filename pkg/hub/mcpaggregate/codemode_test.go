@@ -28,6 +28,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/railgrid/provider-sdk/mcpcode"
 )
 
 // --- sandbox -------------------------------------------------------------
@@ -206,6 +208,7 @@ func newCodeModeProvider(t *testing.T) *codeModeProvider {
 				"result": map[string]any{
 					"content":           []map[string]any{{"type": "text", "text": "ran " + req.Params.Name}},
 					"structuredContent": map[string]any{"tool": req.Params.Name, "args": req.Params.Arguments, "call": n, "nextPage": page.Page + 1, "bigID": json.Number("9007199254740993")},
+					"_meta":             map[string]any{"railgrid": map[string]any{"sources": []any{map[string]any{"object": map[string]any{"uid": "u1"}}}}},
 				},
 			})
 			_, _ = w.Write(body)
@@ -559,5 +562,64 @@ func TestCodeModeInstructionsMentionTools(t *testing.T) {
 	}
 	if !strings.Contains(string(result), "`search`") || !strings.Contains(string(result), "railgrid.call") {
 		t.Fatalf("instructions do not describe code mode: %s", result)
+	}
+}
+
+// The provider-sdk helper every machine consumer uses (mcpcode) must speak
+// exactly this aggregate's wire: catalog through search, one call through
+// execute, refusals classified, _meta and exact structured bytes carried.
+func TestCodeModeWireMatchesSDKHelper(t *testing.T) {
+	p := newCodeModeProvider(t)
+	h := codeModeHandler(t, p)
+
+	params, _ := json.Marshal(mcpcode.CatalogParams())
+	result, code := jsonrpc(t, h, "tools/call", string(params))
+	if code != http.StatusOK {
+		t.Fatalf("search status = %d", code)
+	}
+	cat, err := mcpcode.DecodeCatalog(result)
+	if err != nil {
+		t.Fatalf("DecodeCatalog: %v", err)
+	}
+	var names []string
+	for _, c := range cat {
+		names = append(names, c.Name)
+	}
+	if strings.Join(names, ",") != "infra__provision,infra__branches,infra__items" || !cat[1].ConsentRequired || cat[1].Meta["railgrid"] == nil {
+		t.Fatalf("catalog = %+v", cat)
+	}
+
+	callParams, err := mcpcode.CallParams("infra__provision", map[string]any{"size": 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(callParams)
+	result, code = jsonrpc(t, h, "tools/call", string(raw))
+	if code != http.StatusOK {
+		t.Fatalf("execute status = %d", code)
+	}
+	call, err := mcpcode.DecodeCallResult(result)
+	if err != nil {
+		t.Fatalf("DecodeCallResult: %v", err)
+	}
+	if !call.OK || call.Text != "ran provision" || !strings.Contains(string(call.Data), `"bigID":9007199254740993`) || call.Meta["railgrid"] == nil {
+		t.Fatalf("call = %+v", call)
+	}
+	if got := string(p.calls[0].Args); got != `{"size":3}` {
+		t.Fatalf("provider args = %s", got)
+	}
+
+	var ce *mcpcode.CallError
+	callParams, _ = mcpcode.CallParams("infra__branches", nil)
+	raw, _ = json.Marshal(callParams)
+	result, _ = jsonrpc(t, h, "tools/call", string(raw))
+	if _, err := mcpcode.DecodeCallResult(result); !errors.As(err, &ce) || !ce.ConsentRequired() {
+		t.Fatalf("consent refusal not classified: %v", err)
+	}
+	callParams, _ = mcpcode.CallParams("nope", nil)
+	raw, _ = json.Marshal(callParams)
+	result, _ = jsonrpc(t, h, "tools/call", string(raw))
+	if _, err := mcpcode.DecodeCallResult(result); !errors.As(err, &ce) || !ce.UnknownTool() {
+		t.Fatalf("unknown tool not classified: %v", err)
 	}
 }
